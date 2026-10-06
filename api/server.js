@@ -2016,7 +2016,9 @@ const routes = {
   'GET /api/data': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    const state = readState(user.id);
+    const state = tenantRuntimeStore
+      ? await tenantRuntimeStore.loadState(req.tenant.id, user.id)
+      : readState(user.id);
     notePull(user);
     json(res, 200, { state, rev: state?._rev || 0 });
   },
@@ -2029,7 +2031,10 @@ const routes = {
   'GET /api/data/rev': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    json(res, 200, { rev: readStateCached(user.id)?._rev || 0 });
+    const state = tenantRuntimeStore
+      ? await tenantRuntimeStore.loadState(req.tenant.id, user.id)
+      : readStateCached(user.id);
+    json(res, 200, { rev: state?._rev || 0 });
   },
 
   'PUT /api/data': async (req, res) => {
@@ -2067,9 +2072,11 @@ const routes = {
     // before revisions, or a deliberate replace such as a backup import) overwrites, as before.
     // readState and atomicWrite are synchronous with nothing awaited between them, so the
     // compare-and-write is atomic for this process.
-    const cur = readState(user.id);
+    const cur = tenantRuntimeStore
+      ? await tenantRuntimeStore.loadState(req.tenant.id, user.id)
+      : readState(user.id);
     const curRev = cur?._rev || 0;
-    if (body.baseRev != null && body.baseRev !== curRev) {
+    if (!tenantRuntimeStore && body.baseRev != null && body.baseRev !== curRev) {
       return json(res, 409, { error: 'conflict', rev: curRev, state: cur });
     }
     delete body.state.active;              // in-progress workouts stay device-local
@@ -2085,7 +2092,13 @@ const routes = {
       else delete body.state.resetIds;
     }
     body.state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored
-    atomicWrite(stateFile(user.id), JSON.stringify(body.state));
+    if (tenantRuntimeStore) {
+      const saved = await tenantRuntimeStore.writeState(req.tenant.id, user.id, body.state, body.baseRev);
+      if (!saved.ok) return json(res, 409, { error: 'conflict', rev: saved.revision, state: saved.state });
+      body.state = saved.state;
+    } else {
+      atomicWrite(stateFile(user.id), JSON.stringify(body.state));
+    }
     // The stat cache cannot see this write on its own: mtime granularity is 4 ms here (ext4 on
     // this kernel — 3901 of 3999 back-to-back same-size writes shared one timestamp), and a
     // `_rev` going from 7 to 8 does not change the file's size, so two writes inside one 4 ms
