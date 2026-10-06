@@ -43,9 +43,9 @@ spec:
             - name: COACH_BASE_DOMAIN
               value: coach.origym.co.uk
             - name: RP_ID
-              value: localhost
+              value: origym-coach-staging-941132449542.europe-west2.run.app
             - name: ORIGIN
-              value: http://localhost
+              value: https://origym-coach-staging-941132449542.europe-west2.run.app
             - name: RP_NAME
               value: OriGym Coach Staging
             - name: INVITE_ONLY
