@@ -10,6 +10,7 @@ spec:
       annotations:
         autoscaling.knative.dev/maxScale: '2'
         run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/cloudsql-instances: origym-coach:europe-west2:origym-coach-postgres
     spec:
       containerConcurrency: 40
       timeoutSeconds: 300
@@ -38,6 +39,25 @@ spec:
               value: /tmp/data
             - name: COMPANY_STORE
               value: firestore
+            - name: TENANT_STORE
+              value: postgres
+            # Staging has no branded DNS yet, so only this exact Cloud Run host
+            # can resolve to the protected platform tenant.
+            - name: TENANT_FALLBACK_HOST
+              value: origym-coach-staging-941132449542.europe-west2.run.app
+            - name: TENANT_FALLBACK_SLUG
+              value: origym
+            - name: CLOUD_SQL_CONNECTION_NAME
+              value: origym-coach:europe-west2:origym-coach-postgres
+            - name: DATABASE_NAME
+              value: origym_coach
+            - name: DATABASE_USER
+              value: origym_coach_app
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: origym-coach-db-password
+                  key: latest
             - name: GOOGLE_CLOUD_PROJECT
               value: origym-coach
             - name: COACH_BASE_DOMAIN

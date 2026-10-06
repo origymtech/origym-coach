@@ -2,6 +2,7 @@
    No framework, JSON-file storage, signed session cookies.               */
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -108,20 +109,36 @@ if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(
 const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 
 const dbFile = path.join(DATA, 'db.json');
-let db = { users: [], creds: [], subs: [], invites: [] };
-try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
-db.subs = db.subs || [];
-db.invites = db.invites || [];
-db.deviceLinks = db.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
+let localDb = { users: [], creds: [], subs: [], invites: [] };
+try { localDb = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
+localDb.subs = localDb.subs || [];
+localDb.invites = localDb.invites || [];
+localDb.deviceLinks = localDb.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
+// All legacy route helpers keep referring to `db`; AsyncLocalStorage makes that
+// reference request-scoped when PostgreSQL tenancy is switched on. This avoids a
+// global mutable "current tenant", which would leak data under concurrent requests.
+const tenantContext = new AsyncLocalStorage();
+const activeRuntime = () => tenantContext.getStore()?.runtime || localDb;
+const db = new Proxy({}, {
+  get: (_target, key) => Reflect.get(activeRuntime(), key),
+  set: (_target, key, value) => Reflect.set(activeRuntime(), key, value),
+  has: (_target, key) => Reflect.has(activeRuntime(), key),
+  ownKeys: () => Reflect.ownKeys(activeRuntime()),
+  getOwnPropertyDescriptor: (_target, key) => Object.getOwnPropertyDescriptor(activeRuntime(), key)
+});
 const companyStore = await createCompanyStore({
-  db,
+  db: localDb,
   mode: COMPANY_STORE,
   projectId: process.env.GOOGLE_CLOUD_PROJECT || undefined
 });
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 // 0600: db.json holds passkey credential material. It used to be covered by a blanket 0700 on
 // the whole directory; now that the directory stays traversable, the file carries its own mode.
-function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2), 0o600); }
+function saveDb() {
+  const context = tenantContext.getStore();
+  if (context) { context.runtimeDirty = true; return; }
+  atomicWrite(dbFile, JSON.stringify(localDb, null, 2), 0o600);
+}
 function atomicWrite(file, content, mode) {
   const tmp = file + '.tmp';
   fs.writeFileSync(tmp, content, mode ? { mode } : undefined);
@@ -141,6 +158,8 @@ function notePull(user, now = Date.now()) {
 // The later of the last push and the last pull.
 const lastSyncOf = (u, S) => Math.max(S?._ts || 0, u?.lastPull || 0) || null;
 function readState(uid) {
+  const context = tenantContext.getStore();
+  if (context) return context.states.get(uid) || null;
   try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
 }
 // An entry is an object a reader can dereference, and `records` is every entry of a stored
@@ -392,6 +411,8 @@ const STATE_CACHE_MAX = 64;
 const STATE_CACHE_TTL_MS = Math.max(50, +(process.env.STATE_CACHE_TTL_MS || 600000) || 600000);
 const stateCache = new Map(); // uid -> { mtimeMs, size, hitAt, S }
 function readStateCached(uid) {
+  const context = tenantContext.getStore();
+  if (context) return context.states.get(uid) || null;
   let st;
   try { st = fs.statSync(stateFile(uid)); } catch { stateCache.delete(uid); return null; }
   const now = Date.now();
@@ -440,14 +461,16 @@ setInterval(() => {
 
 /* ---------- sessions (signed cookie) ---------- */
 function sign(payload) {
-  const mac = crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
+  const secret = tenantContext.getStore()?.sessionSecret || SECRET;
+  const mac = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return payload + '.' + mac;
 }
 function verifySig(token) {
   const i = token.lastIndexOf('.');
   if (i < 0) return null;
   const payload = token.slice(0, i), mac = token.slice(i + 1);
-  const expect = crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
+  const secret = tenantContext.getStore()?.sessionSecret || SECRET;
+  const expect = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   try {
     if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return null;
   } catch { return null; }
@@ -461,7 +484,10 @@ function verifySig(token) {
 const sessionVersion = user => user.sv || 0;
 function makeSession(user) {
   const exp = Date.now() + SESSION_DAYS * 86400000;
-  return sign(user.id + ':' + exp + ':' + sessionVersion(user));
+  const tenantId = tenantContext.getStore()?.tenant?.id;
+  return sign(tenantId
+    ? tenantId + ':' + user.id + ':' + exp + ':' + sessionVersion(user)
+    : user.id + ':' + exp + ':' + sessionVersion(user));
 }
 // With the __Host- prefix the *browser* guarantees the cookie is host-only (no Domain attribute
 // is even allowed) — which is what stops a sibling subdomain, e.g. anything-else.example.com
@@ -507,7 +533,15 @@ function sessionOf(req) {
   if (!tok) return null;
   const payload = verifySig(tok);
   if (!payload) return null;
-  const [uid, exp, ver] = payload.split(':');
+  const values = payload.split(':');
+  const tenant = tenantContext.getStore()?.tenant;
+  const tenantPayload = values.length === 4;
+  const [tenantId, uid, exp, ver] = tenantPayload
+    ? values
+    : [null, values[0], values[1], values[2]];
+  // Database tenants never accept the old, unscoped session shape. A valid
+  // session is bound to both the tenant signing key and the request hostname.
+  if (tenant && (!tenantPayload || tenantId !== tenant.id)) return null;
   if (!uid || +exp < Date.now()) return null;
   const user = db.users.find(u => u.id === uid) || null;
   if (!user) return null;
@@ -596,13 +630,14 @@ function csrfOk(req, key) {
 const challenges = new Map(); // cid -> {kind, challenge, name?, uid?, exp}
 function putChallenge(data) {
   const cid = crypto.randomBytes(16).toString('base64url');
-  challenges.set(cid, { ...data, exp: Date.now() + 5 * 60000 });
+  challenges.set(cid, { ...data, tenantId: tenantContext.getStore()?.tenant?.id || null, exp: Date.now() + 5 * 60000 });
   return cid;
 }
 function takeChallenge(cid) {
   const c = challenges.get(cid);
   challenges.delete(cid);
-  if (!c || c.exp < Date.now()) return null;
+  const tenantId = tenantContext.getStore()?.tenant?.id || null;
+  if (!c || c.exp < Date.now() || c.tenantId !== tenantId) return null;
   return c;
 }
 setInterval(() => { for (const [k, v] of challenges) if (v.exp < Date.now()) challenges.delete(k); }, 60000).unref();
@@ -611,7 +646,7 @@ setInterval(() => { for (const [k, v] of challenges) if (v.exp < Date.now()) cha
 // A passkey ceremony can't run inside the app's WebView (its origin never matches RP_ID), so the
 // app authenticates by redeeming a short code minted from an already signed-in browser tab —
 // same 5-min-TTL/one-shot shape as the WebAuthn challenge store above.
-const pairings = new Map(); // code -> {uid, exp}
+const pairings = new Map(); // code -> {uid, tenantId, exp}
 const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I — read off a screen
 function makePairCode() {
   let code;
@@ -1979,7 +2014,7 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     const code = makePairCode();
-    pairings.set(code, { uid: user.id, exp: Date.now() + 5 * 60000 });
+    pairings.set(code, { uid: user.id, tenantId: tenantContext.getStore()?.tenant?.id || null, exp: Date.now() + 5 * 60000 });
     audit(req, 'auth.pair.create', { user });
     json(res, 200, { code });
   },
@@ -1991,7 +2026,7 @@ const routes = {
     const code = text(body.code).trim().toUpperCase();
     const p = pairings.get(code);
     if (p) pairings.delete(code);
-    if (!p || p.exp < Date.now()) {
+    if (!p || p.exp < Date.now() || p.tenantId !== (tenantContext.getStore()?.tenant?.id || null)) {
       audit(req, 'auth.pair.fail', { ok: false, msg: 'code-invalid' });
       return json(res, 400, { error: 'invalid or expired code' });
     }
@@ -2096,6 +2131,7 @@ const routes = {
       const saved = await tenantRuntimeStore.writeState(req.tenant.id, user.id, body.state, body.baseRev);
       if (!saved.ok) return json(res, 409, { error: 'conflict', rev: saved.revision, state: saved.state });
       body.state = saved.state;
+      tenantContext.getStore()?.states.set(user.id, body.state);
     } else {
       atomicWrite(stateFile(user.id), JSON.stringify(body.state));
     }
@@ -2321,7 +2357,8 @@ const routes = {
     dropDeviceLinks(db, u.id);
     presence.delete(u.id);
     // The training history and any Coach credential of theirs, both outside db.json.
-    try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
+    if (tenantRuntimeStore) await tenantRuntimeStore.deleteState(req.tenant.id, u.id);
+    else try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
     try { coachConfig.clearProfileAuth(u.id); } catch { /* nothing stored */ }
     // Their photos and videos — the one place a profile's folder under uploads/ is removed.
     try { MEDIA.removeUser(u.id); } catch (e) { console.error('media: could not remove uploads of', u.id, e.message); }
@@ -2508,26 +2545,47 @@ const server = http.createServer(async (req, res) => {
     const wait = AUTH_BURST.take(addr) || (kind ? ADDR_FAILS.retryAfter(kind + '|' + addr) : 0);
     if (wait) return tooMany(res, wait);
   }
-  try { await handler(req, res); }
-  catch (e) {
-    if (e?.clientGone) { console.warn(key, 'client went away mid-body:', e.message); return; }
-    if (e instanceof HttpError) {
-      if (!res.headersSent) json(res, e.status, { error: e.message });
-      return;
+  const dispatch = async () => {
+    try { await handler(req, res); }
+    catch (e) {
+      if (e?.clientGone) { console.warn(key, 'client went away mid-body:', e.message); return; }
+      if (e instanceof HttpError) {
+        if (!res.headersSent) json(res, e.status, { error: e.message });
+        return;
+      }
+      // A refused upload or a missing file: the caller's to act on, never a logged 500.
+      if (e instanceof MediaError) {
+        if (!res.headersSent) json(res, e.status, { error: e.message, code: e.code, ...e.extra }, e.headers);
+        return;
+      }
+      // Every scrypt slot and the short queue behind them are taken (password.js).
+      if (e instanceof BusyError) {
+        if (!res.headersSent) json(res, 503, { error: 'the server is busy — try again in a moment', code: 'busy' }, { 'Retry-After': '2' });
+        return;
+      }
+      console.error(key, e);
+      if (!res.headersSent) json(res, 500, { error: 'server error' });
     }
-    // A refused upload or a missing file: the caller's to act on, never a logged 500.
-    if (e instanceof MediaError) {
-      if (!res.headersSent) json(res, e.status, { error: e.message, code: e.code, ...e.extra }, e.headers);
-      return;
-    }
-    // Every scrypt slot and the short queue behind them are taken (password.js).
-    if (e instanceof BusyError) {
-      if (!res.headersSent) json(res, 503, { error: 'the server is busy — try again in a moment', code: 'busy' }, { 'Retry-After': '2' });
-      return;
-    }
-    console.error(key, e);
-    if (!res.headersSent) json(res, 500, { error: 'server error' });
+  };
+  if (!tenantRuntimeStore) return dispatch();
+
+  // Each API request receives a fresh tenant runtime. The proxy above makes all
+  // legacy `db` reads and writes point at this object only for this async call.
+  // It is persisted once, after the route has completed, so no JSON file is
+  // read or written when PostgreSQL tenancy is enabled.
+  const stored = await tenantRuntimeStore.load(req.tenant.id);
+  const runtime = stored.runtime && typeof stored.runtime === 'object' ? stored.runtime : {};
+  for (const key of ['users', 'creds', 'subs', 'invites', 'deviceLinks']) {
+    if (!Array.isArray(runtime[key])) runtime[key] = [];
   }
+  const states = await tenantRuntimeStore.loadStates(req.tenant.id, runtime.users.map(user => user.id));
+  const context = { tenant: req.tenant, runtime, states, sessionSecret: stored.session_secret, runtimeDirty: false };
+  return tenantContext.run(context, async () => {
+    try { await dispatch(); }
+    finally {
+      if (context.runtimeDirty) await tenantRuntimeStore.saveRuntime(req.tenant.id, runtime);
+    }
+  });
 });
 // Node's default of 300 s for a whole request would answer 408 to a 40 MB video on a ~1 Mbit/s
 // uplink. Half an hour covers that; a stalled upload is cut much sooner by its own 60 s idle
