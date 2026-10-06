@@ -44,6 +44,9 @@ const RP_NAME = process.env.RP_NAME || 'openGym';
 // comes from the request host, never from a browser-supplied company id.
 const COACH_BASE_DOMAIN = process.env.COACH_BASE_DOMAIN || 'coach.origym.co.uk';
 const COMPANY_STORE = process.env.COMPANY_STORE || 'local';
+// V1 is the OriGym-owned student product. Trainer white-label controls remain
+// unavailable until the separate provisioning and branded-domain workflow is ready.
+const WHITE_LABEL_ENABLED = /^(1|true|yes|on)$/i.test(process.env.WHITE_LABEL_ENABLED || '');
 // Postgres tenancy is opt-in while the routes are converted. Keeping the switch
 // explicit prevents a partially migrated self-hosted install from losing access
 // to its existing local files.
@@ -2304,11 +2307,13 @@ const routes = {
   /* ---------- OriGym company management (local bootstrap storage) ---------- */
   'GET /api/admin/companies': async (req, res) => {
     if (!requireAdmin(req, res)) return;
+    if (!WHITE_LABEL_ENABLED) return json(res, 404, { error: 'white-label management is not enabled' });
     json(res, 200, { companies: await companyStore.list() });
   },
 
   'POST /api/admin/companies': async (req, res) => {
     const admin = requireAdmin(req, res); if (!admin) return;
+    if (!WHITE_LABEL_ENABLED) return json(res, 404, { error: 'white-label management is not enabled' });
     const result = await companyStore.create(await readBody(req), admin.id);
     if (!result.ok) return json(res, result.code === 'taken' ? 409 : 400, { error: result.message, code: result.code });
     if (COMPANY_STORE !== 'firestore') saveDb();
@@ -2318,6 +2323,7 @@ const routes = {
 
   'POST /api/admin/company/status': async (req, res) => {
     const admin = requireAdmin(req, res); if (!admin) return;
+    if (!WHITE_LABEL_ENABLED) return json(res, 404, { error: 'white-label management is not enabled' });
     const body = await readBody(req);
     const result = await companyStore.changeStatus(body.id, body.status);
     if (!result.ok) return json(res, result.code === 'not-found' ? 404 : 400, { error: result.message, code: result.code });
