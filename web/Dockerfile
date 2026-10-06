@@ -7,7 +7,9 @@
 # QEMU — and QEMU-emulated npm installs are known to corrupt esbuild/rollup's platform-
 # specific native binaries, which is what breaks `vite build` with unrelated-looking
 # module-resolution errors.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS build
+# The frontend output is architecture-independent. Keeping this stage native also
+# works with Cloud Build's Docker builder, which does not provide BUILDPLATFORM.
+FROM node:22-alpine AS build
 # The frontend sits at /app/frontend, not /app: the Coach's runtime-neutral core lives in
 # api/coach/core and is imported from frontend/src as ../../../api/coach/core/*, so the two
 # have to keep the same relative position they have in the repository. Copying frontend/ alone
@@ -79,4 +81,3 @@ HEALTHCHECK --interval=5m \
             --timeout=5s \
             --retries=3 \
             CMD wget --spider -q "http://127.0.0.1:${NGINX_PORT}/" || exit 1
-
