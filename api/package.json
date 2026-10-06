@@ -10,8 +10,9 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.3.1",
     "@simplewebauthn/server": "^13.1.1",
-    "undici": "^7.29.0",
+    "undici": "^7.30.0",
     "web-push": "^3.6.7"
   },
   "optionalDependencies": {

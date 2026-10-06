@@ -61,6 +61,8 @@ const LABELS = {
   'admin.invite.revoke': 'Revoked an invite code',
   'admin.audit.clear': 'Cleared the activity log',
   'admin.denied': 'Blocked from the admin dashboard',
+  'admin.company.create': 'Created a trainer version',
+  'admin.company.status': 'Changed a trainer version status',
   // Photos and videos of custom exercises: "Reset everything" clearing a profile's files, and the
   // upload or clean-up throttle pausing a profile (`msg` says which).
   'media.sweep': 'Cleared unused photos and videos',

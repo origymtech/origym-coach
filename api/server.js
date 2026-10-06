@@ -31,12 +31,17 @@ import {
 } from './passkeys-store.js';
 import { createDeviceLink, findDeviceLink, burnDeviceLink, dropDeviceLinks } from './device-link.js';
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
+import { createCompanyStore } from './company-store.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
 const RP_ID = process.env.RP_ID || 'localhost';
 const ORIGIN = process.env.ORIGIN || 'http://localhost:8080';
 const RP_NAME = process.env.RP_NAME || 'openGym';
+// All trainer-branded versions sit below this parent domain. The selected company
+// comes from the request host, never from a browser-supplied company id.
+const COACH_BASE_DOMAIN = process.env.COACH_BASE_DOMAIN || 'coach.origym.co.uk';
+const COMPANY_STORE = process.env.COMPANY_STORE || 'local';
 // Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -100,6 +105,11 @@ try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
 db.subs = db.subs || [];
 db.invites = db.invites || [];
 db.deviceLinks = db.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
+const companyStore = await createCompanyStore({
+  db,
+  mode: COMPANY_STORE,
+  projectId: process.env.GOOGLE_CLOUD_PROJECT || undefined
+});
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 // 0600: db.json holds passkey credential material. It used to be covered by a blanket 0700 on
 // the whole directory; now that the directory stays traversable, the file carries its own mode.
@@ -1732,6 +1742,18 @@ const mediaRoutes = {
 const routes = {
   'GET /api/health': async (req, res) => json(res, 200, { ok: true, users: db.users.length }),
 
+  'GET /api/company': async (req, res) => {
+    const company = await companyStore.forHost(req.headers.host, COACH_BASE_DOMAIN);
+    if (!company) return json(res, 404, { error: 'branded company not found' });
+    json(res, 200, {
+      company: {
+        slug: company.slug,
+        name: company.name,
+        branding: company.branding
+      }
+    });
+  },
+
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
   // the instance has both switched the Coach on and successfully connected a provider — the
   // single flag every piece of Coach UI hangs off, so an unconfigured instance is byte-for-byte
@@ -2192,6 +2214,31 @@ const routes = {
       };
     });
     json(res, 200, { users, invite_only: INVITE_ONLY, ...(PASSWORD_LOGIN ? { password_login: true } : {}), now: Date.now() });
+  },
+
+  /* ---------- OriGym company management (local bootstrap storage) ---------- */
+  'GET /api/admin/companies': async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    json(res, 200, { companies: await companyStore.list() });
+  },
+
+  'POST /api/admin/companies': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const result = await companyStore.create(await readBody(req), admin.id);
+    if (!result.ok) return json(res, result.code === 'taken' ? 409 : 400, { error: result.message, code: result.code });
+    if (COMPANY_STORE !== 'firestore') saveDb();
+    audit(req, 'admin.company.create', { user: admin, msg: result.company.slug });
+    json(res, 201, { company: result.company });
+  },
+
+  'POST /api/admin/company/status': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req);
+    const result = await companyStore.changeStatus(body.id, body.status);
+    if (!result.ok) return json(res, result.code === 'not-found' ? 404 : 400, { error: result.message, code: result.code });
+    if (COMPANY_STORE !== 'firestore') saveDb();
+    audit(req, 'admin.company.status', { user: admin, msg: result.company.slug + ' · ' + result.company.status });
+    json(res, 200, { company: result.company });
   },
 
   // Drill-down: full workout history + body-weight log for one user.

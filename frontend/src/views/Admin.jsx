@@ -191,6 +191,65 @@ function InvitesCard({ invites, reload, inviteOnly }) {
   </div>
 }
 
+function NewCompanySheet({ onCreated, close }) {
+  const toast = useUI(s => s.toast)
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [primaryColour, setPrimaryColour] = useState('#E6413D')
+  const [saving, setSaving] = useState(false)
+  const save = () => {
+    if (saving) return
+    setSaving(true)
+    api('/api/admin/companies', { method: 'POST', body: JSON.stringify({ name, slug, primaryColour }) })
+      .then(({ company }) => { toast(company.name + ' created'); onCreated(); close() })
+      .catch(e => toast(e.message))
+      .finally(() => setSaving(false))
+  }
+  return <>
+    <h3>Create trainer version</h3>
+    <div className="adm-lead">This creates a separate branded client area. The web address is permanent, so check it before creating.</div>
+    <label className="field"><span>Company or trainer name</span>
+      <input value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Sam Fitness" autoFocus /></label>
+    <label className="field"><span>Branded URL</span>
+      <div className="row" style={{ gap: 0, alignItems: 'stretch' }}><input value={slug} maxLength={10} onChange={e => setSlug(e.target.value.toLowerCase())} placeholder="samfit" style={{ borderRadius: '10px 0 0 10px', minWidth: 0 }} />
+        <span className="small muted" style={{ border: 'var(--hair) solid var(--sep)', borderLeft: 0, padding: '10px 8px', borderRadius: '0 10px 10px 0', whiteSpace: 'nowrap' }}>.coach.origym.co.uk</span></div>
+      <small className="dim">Maximum 10 characters. No spaces.</small></label>
+    <label className="field"><span>Primary colour</span>
+      <div className="row" style={{ gap: 8 }}><input type="color" value={primaryColour} onChange={e => setPrimaryColour(e.target.value)} style={{ width: 44, padding: 2 }} />
+        <input value={primaryColour} maxLength={7} onChange={e => setPrimaryColour(e.target.value)} aria-label="Primary colour hex value" /></div></label>
+    <Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Creating…' : 'Create version'}</Button>
+  </>
+}
+
+function CompaniesCard({ companies, reload }) {
+  const toast = useUI(s => s.toast)
+  const openSheet = useUI(s => s.openSheet)
+  const changeStatus = (company, status) => confirmSheet({
+    title: (status === 'suspended' ? 'Suspend ' : 'Reactivate ') + company.name + '?',
+    message: status === 'suspended'
+      ? 'Clients will no longer be able to open this branded version. Its web address remains reserved.'
+      : 'Clients will be able to use this branded version again.',
+    confirmText: status === 'suspended' ? 'Suspend' : 'Reactivate', danger: status === 'suspended',
+    onConfirm: () => api('/api/admin/company/status', { method: 'POST', body: JSON.stringify({ id: company.id, status }) })
+      .then(() => { toast(company.name + (status === 'suspended' ? ' suspended' : ' reactivated')); reload() })
+      .catch(e => toast(e.message))
+  })
+  return <div className="card">
+    <div className="row between"><h2 style={{ margin: 0 }}>Trainer versions</h2>
+      <Button variant="primary" size="sm" onClick={() => openSheet(close => <NewCompanySheet onCreated={reload} close={close} />)} icon="plus">New version</Button></div>
+    <div className="adm-lead">Each version has its own branding and client area. A suspended version is unavailable, but its branded URL stays protected.</div>
+    {companies === null ? <div className="adm-empty">Loading trainer versions…</div> : companies.length ? <div className="list">
+      {companies.map(company => <div key={company.id} className="row between" style={{ padding: '9px 2px', borderBottom: 'var(--hair) solid var(--sep)', gap: 8 }}>
+        <span aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', borderRadius: 99, background: company.branding?.primaryColour || '#E6413D' }} />
+        <div className="grow"><div className="small" style={{ fontWeight: 600 }}>{company.name} {company.status === 'suspended' && <span className="adm-pill bad" style={{ marginInlineStart: 5 }}>suspended</span>}</div>
+          <div className="dim" style={{ fontSize: '.72rem' }}>{company.slug}.coach.origym.co.uk</div></div>
+        <Button size="sm" variant={company.status === 'suspended' ? 'primary' : 'danger'} onClick={() => changeStatus(company, company.status === 'suspended' ? 'active' : 'suspended')}>
+          {company.status === 'suspended' ? 'Reactivate' : 'Suspend'}</Button>
+      </div>)}
+    </div> : <div className="adm-empty">No trainer versions yet. Create the OriGym version first.</div>}
+  </div>
+}
+
 // Who signed in, who tried and failed, what an admin changed. A card rather than its own route:
 // the dashboard is deliberately one page of cards, and the 95 % use of this is a glance at the
 // last twenty events. Paging follows Library.jsx's house style — "Show more", not page numbers.
@@ -258,6 +317,7 @@ export default function Admin() {
   const [usersErr, setUsersErr] = useState(null)   // why the last load failed, until one succeeds
   const [invites, setInvites] = useState(null)
   const [inviteOnly, setInviteOnly] = useState(false)
+  const [companies, setCompanies] = useState(null)
   const [tick, setTick] = useState(0)          // the ↻ button; the activity log listens to it
 
   // A failed load, or an answer without a list, used to leave the page on "Loading…" for good —
@@ -271,8 +331,9 @@ export default function Admin() {
     })
     .catch(e => setUsersErr(e.message || 'Failed to load'))
   const loadInvites = () => api('/api/admin/invites').then(d => setInvites(d.invites)).catch(() => {})
+  const loadCompanies = () => api('/api/admin/companies').then(d => setCompanies(d.companies)).catch(() => setCompanies([]))
   // poll every 15s so the "training now" section stays live without a manual refresh
-  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
+  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); loadCompanies(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
   if (!user?.admin) return null
 
   const openUser = id => openSheet(close => <UserDetail id={id} onChanged={loadUsers} close={close} />)
@@ -285,7 +346,7 @@ export default function Admin() {
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label="Back"><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginInlineStart: 8 }}><h1 style={{ margin: 0 }}>Admin</h1>
         <div className="sub">{users ? users.length + ' users · ' + activeCount + ' active this week' : usersErr ? 'Could not load' : 'Loading…'}</div></div>
-      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites(); setTick(n => n + 1) }} aria-label="refresh">↻</button>
+      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites(); loadCompanies(); setTick(n => n + 1) }} aria-label="refresh">↻</button>
     </div>
     <div className="adm-intro">
       Everything about running this instance: who uses it, how they get in, the AI Coach, and what has happened on it. Nothing here shows anyone's training data beyond counts.
@@ -319,6 +380,8 @@ export default function Admin() {
     {/* The Coach setup. Renders nothing at all unless the instance offers the Coach, so an admin
         page on a box that never enabled it is byte-for-byte the page it was before. */}
     <AdminCoach />
+
+    <CompaniesCard companies={companies} reload={loadCompanies} />
 
     <InvitesCard invites={invites} reload={loadInvites} inviteOnly={inviteOnly} />
 

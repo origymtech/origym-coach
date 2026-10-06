@@ -180,6 +180,39 @@ paths:
                     description: Number of registered user accounts.
               example: { ok: true, users: 7 }
 
+  /api/company:
+    get:
+      tags: [meta]
+      operationId: getBrandedCompany
+      summary: Branded company for the current hostname
+      description: >-
+        Resolves an active trainer company from `<slug>.coach.origym.co.uk`.
+        The hostname is taken from the request, not supplied by the browser.
+      security: []
+      responses:
+        '200':
+          description: Public company branding for the current branded hostname.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company:
+                    type: object
+                    properties:
+                      slug: { type: string }
+                      name: { type: string }
+                      branding:
+                        type: object
+                        properties:
+                          primaryColour: { type: string, pattern: '^#[0-9A-F]{6}$' }
+                          logoUrl: { type: [string, 'null'], format: uri }
+        '404':
+          description: The host is not an active branded trainer/company version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/config:
     get:
       tags: [meta]
@@ -2041,6 +2074,97 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /api/admin/companies:
+    get:
+      tags: [admin]
+      operationId: adminCompanies
+      summary: 'Admin: list OriGym Coach companies'
+      description: >-
+        Lists the branded trainer/company versions registered on this platform.
+        The local bootstrap storage will be replaced by Firestore before production.
+      responses:
+        '200':
+          description: All non-released companies.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companies:
+                    type: array
+                    items: { $ref: '#/components/schemas/Company' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin]
+      operationId: adminCreateCompany
+      summary: 'Admin: create a branded trainer/company version'
+      description: >-
+        Claims a unique hostname label at `<slug>.coach.origym.co.uk`. Slugs are
+        lowercased, limited to 10 characters and checked against every retained company
+        version and platform-reserved name before creation. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                slug: { type: string, maxLength: 10, pattern: '^[A-Za-z0-9-]+$' }
+                primaryColour: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+            example: { name: 'Sam Fitness', slug: 'samfit', primaryColour: '#E6413D' }
+      responses:
+        '201':
+          description: Company created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company: { $ref: '#/components/schemas/Company' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The branded URL is already claimed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/admin/company/status:
+    post:
+      tags: [admin]
+      operationId: adminCompanyStatus
+      summary: 'Admin: suspend or activate a company'
+      description: >-
+        A suspended company no longer resolves from its branded hostname. Its slug remains
+        reserved and cannot be claimed by another trainer. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: string }
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        '200':
+          description: Company status changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company: { $ref: '#/components/schemas/Company' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/Error' }
+
   /api/admin/user:
     get:
       tags: [admin]
@@ -3398,6 +3522,27 @@ components:
             auth: { type: string }
 
     # ------------------------------------------------------------------ admin
+    Company:
+      type: object
+      required: [id, slug, name, status, branding, createdAt, createdBy, updatedAt]
+      properties:
+        id: { type: string }
+        slug:
+          type: string
+          maxLength: 10
+          description: The unique label in `<slug>.coach.origym.co.uk`.
+        name: { type: string, maxLength: 80 }
+        status: { type: string, enum: [active, suspended] }
+        branding:
+          type: object
+          required: [primaryColour, logoUrl]
+          properties:
+            primaryColour: { type: string, pattern: '^#[0-9A-F]{6}$' }
+            logoUrl: { type: [string, 'null'], format: uri }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string }
+        updatedAt: { type: string, format: date-time }
+
     AdminUserRow:
       type: object
       properties:
