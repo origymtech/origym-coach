@@ -28,12 +28,15 @@ export class TenantRuntimeStore {
     return new TenantRuntimeStore(new Pool(connectionConfig(env)));
   }
 
-  async tenantForHost(host, { baseDomain, fallbackSlug } = {}) {
+  async tenantForHost(host, { baseDomain, fallbackHost, fallbackSlug } = {}) {
     const name = hostname(host);
     let slug = null;
     const suffix = baseDomain ? `.${String(baseDomain).toLowerCase()}` : '';
     if (suffix && name.endsWith(suffix)) slug = name.slice(0, -suffix.length);
-    if (!slug || slug.includes('.')) slug = fallbackSlug || null;
+    // A staging fallback is allowed only for its exact Cloud Run hostname.
+    // Falling back for arbitrary hosts would make a typo or hostile Host header
+    // land inside the platform tenant.
+    if ((!slug || slug.includes('.')) && fallbackSlug && name === hostname(fallbackHost)) slug = fallbackSlug;
     if (!slug) return null;
     const result = await this.pool.query(
       'SELECT id, slug, name, primary_colour, status FROM organisations WHERE slug = $1 AND status = $2',
@@ -72,6 +75,15 @@ export class TenantRuntimeStore {
     return result.rows[0]?.state || null;
   }
 
+  async loadStates(organisationId, userIds) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return new Map();
+    const result = await this.pool.query(
+      'SELECT user_id, state FROM tenant_state_documents WHERE organisation_id = $1 AND user_id = ANY($2::text[])',
+      [organisationId, userIds]
+    );
+    return new Map(result.rows.map(row => [row.user_id, row.state]));
+  }
+
   async saveState(organisationId, userId, state) {
     const revision = Number(state?._rev) || 0;
     await this.pool.query(
@@ -81,6 +93,40 @@ export class TenantRuntimeStore {
        SET revision = EXCLUDED.revision, state = EXCLUDED.state, updated_at = now()`,
       [organisationId, userId, revision, JSON.stringify(state)]
     );
+  }
+
+  // Conditional persistence is enforced by PostgreSQL, not by a process-local
+  // read/then-write. That keeps two devices (or two Cloud Run instances) from
+  // silently overwriting each other.
+  async writeState(organisationId, userId, state, baseRevision) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query(
+        'SELECT revision, state FROM tenant_state_documents WHERE organisation_id = $1 AND user_id = $2 FOR UPDATE',
+        [organisationId, userId]
+      );
+      const currentRevision = Number(current.rows[0]?.revision || 0);
+      if (baseRevision != null && baseRevision !== currentRevision) {
+        await client.query('ROLLBACK');
+        return { ok: false, revision: currentRevision, state: current.rows[0]?.state || null };
+      }
+      const next = { ...state, _rev: currentRevision + 1 };
+      await client.query(
+        `INSERT INTO tenant_state_documents (organisation_id, user_id, revision, state)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (organisation_id, user_id) DO UPDATE
+         SET revision = EXCLUDED.revision, state = EXCLUDED.state, updated_at = now()`,
+        [organisationId, userId, next._rev, JSON.stringify(next)]
+      );
+      await client.query('COMMIT');
+      return { ok: true, revision: next._rev, state: next };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch { /* transaction was not open */ }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async deleteState(organisationId, userId) {

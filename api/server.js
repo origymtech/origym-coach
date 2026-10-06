@@ -32,6 +32,7 @@ import {
 import { createDeviceLink, findDeviceLink, burnDeviceLink, dropDeviceLinks } from './device-link.js';
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
 import { createCompanyStore } from './company-store.js';
+import { TenantRuntimeStore } from './tenant-runtime-store.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -42,6 +43,13 @@ const RP_NAME = process.env.RP_NAME || 'openGym';
 // comes from the request host, never from a browser-supplied company id.
 const COACH_BASE_DOMAIN = process.env.COACH_BASE_DOMAIN || 'coach.origym.co.uk';
 const COMPANY_STORE = process.env.COMPANY_STORE || 'local';
+// Postgres tenancy is opt-in while the routes are converted. Keeping the switch
+// explicit prevents a partially migrated self-hosted install from losing access
+// to its existing local files.
+const TENANT_STORE = process.env.TENANT_STORE || 'local';
+const TENANT_FALLBACK_HOST = process.env.TENANT_FALLBACK_HOST || '';
+const TENANT_FALLBACK_SLUG = process.env.TENANT_FALLBACK_SLUG || '';
+const tenantRuntimeStore = TENANT_STORE === 'postgres' ? TenantRuntimeStore.fromEnvironment() : null;
 // Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -2456,6 +2464,16 @@ const server = http.createServer(async (req, res) => {
   try { url = new URL(req.url, 'http://x'); }
   catch { return json(res, 400, { error: 'bad request' }); }
   let key = req.method + ' ' + url.pathname;
+  // Tenant choice comes only from the served hostname. A browser must never be
+  // able to name an organisation in a request body, query string or cookie.
+  if (tenantRuntimeStore) {
+    req.tenant = await tenantRuntimeStore.tenantForHost(req.headers.host, {
+      baseDomain: COACH_BASE_DOMAIN,
+      fallbackHost: TENANT_FALLBACK_HOST,
+      fallbackSlug: TENANT_FALLBACK_SLUG
+    });
+    if (!req.tenant) return json(res, 404, { error: 'branded company not found' });
+  }
   // The one route with a parameter in its path. Mapped onto its template key here so the table
   // above stays a plain lookup, and so csrfOk and the catch-all see one name for every file.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
