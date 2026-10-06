@@ -1,0 +1,16 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - web/Dockerfile
+      - --build-arg
+      - APP_BUILD=${_APP_BUILD}
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+substitutions:
+  _APP_BUILD: dev
+  _IMAGE: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:dev
