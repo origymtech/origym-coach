@@ -16,7 +16,7 @@ spec:
       serviceAccountName: origym-coach-staging@origym-coach.iam.gserviceaccount.com
       containers:
         - name: web
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:54735d6
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:5016ba9
           ports:
             - containerPort: 8080
           env:
@@ -30,7 +30,7 @@ spec:
             - name: RESOLVER
               value: '127.0.0.1'
         - name: api
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:37c3020
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:5016ba9
           env:
             - name: PORT
               value: '3000'
