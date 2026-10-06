@@ -1,0 +1,54 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: origym-coach-staging
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '2'
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 40
+      timeoutSeconds: 300
+      serviceAccountName: origym-coach-staging@origym-coach.iam.gserviceaccount.com
+      containers:
+        - name: web
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:54735d6
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NGINX_PORT
+              value: '8080'
+            - name: BACKEND
+              value: '127.0.0.1'
+            - name: API_PORT
+              value: '3000'
+            # The API sidecar is a literal IP, so nginx never queries this resolver.
+            - name: RESOLVER
+              value: '127.0.0.1'
+        - name: api
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:37c3020
+          env:
+            - name: PORT
+              value: '3000'
+            - name: DATA_DIR
+              value: /tmp/data
+            - name: COMPANY_STORE
+              value: firestore
+            - name: GOOGLE_CLOUD_PROJECT
+              value: origym-coach
+            - name: COACH_BASE_DOMAIN
+              value: coach.origym.co.uk
+            - name: RP_ID
+              value: localhost
+            - name: ORIGIN
+              value: http://localhost
+            - name: RP_NAME
+              value: OriGym Coach Staging
+            - name: INVITE_ONLY
+              value: 'true'
+            - name: ALLOW_GUEST
+              value: 'false'
