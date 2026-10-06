@@ -7,11 +7,13 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "db:migrate": "node db/migrate.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.3.1",
     "@simplewebauthn/server": "^13.1.1",
+    "pg": "^8.23.1",
     "undici": "^7.30.0",
     "web-push": "^3.6.7"
   },
