@@ -195,7 +195,7 @@ function NewCompanySheet({ onCreated, close }) {
   const toast = useUI(s => s.toast)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
-  const [primaryColour, setPrimaryColour] = useState('#E6413D')
+  const [primaryColour, setPrimaryColour] = useState('#EB7C16')
   const [saving, setSaving] = useState(false)
   const save = () => {
     if (saving) return
@@ -240,7 +240,7 @@ function CompaniesCard({ companies, reload }) {
     <div className="adm-lead">Each version has its own branding and client area. A suspended version is unavailable, but its branded URL stays protected.</div>
     {companies === null ? <div className="adm-empty">Loading trainer versions…</div> : companies.length ? <div className="list">
       {companies.map(company => <div key={company.id} className="row between" style={{ padding: '9px 2px', borderBottom: 'var(--hair) solid var(--sep)', gap: 8 }}>
-        <span aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', borderRadius: 99, background: company.branding?.primaryColour || '#E6413D' }} />
+        <span aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', borderRadius: 99, background: company.branding?.primaryColour || '#EB7C16' }} />
         <div className="grow"><div className="small" style={{ fontWeight: 600 }}>{company.name} {company.status === 'suspended' && <span className="adm-pill bad" style={{ marginInlineStart: 5 }}>suspended</span>}</div>
           <div className="dim" style={{ fontSize: '.72rem' }}>{company.slug}.coach.origym.co.uk</div></div>
         <Button size="sm" variant={company.status === 'suspended' ? 'primary' : 'danger'} onClick={() => changeStatus(company, company.status === 'suspended' ? 'active' : 'suspended')}>

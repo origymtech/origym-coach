@@ -8,7 +8,7 @@ CREATE TABLE organisations (
   slug VARCHAR(10) NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9-]{1,10}$'),
   name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
   logo_url TEXT,
-  primary_colour VARCHAR(7) NOT NULL DEFAULT '#E85D2A' CHECK (primary_colour ~ '^#[0-9A-Fa-f]{6}$'),
+  primary_colour VARCHAR(7) NOT NULL DEFAULT '#EB7C16' CHECK (primary_colour ~ '^#[0-9A-Fa-f]{6}$'),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'released')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

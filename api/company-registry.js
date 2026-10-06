@@ -27,7 +27,7 @@ export function validateCompanyInput(input) {
   const slug = validateTenantSlug(input?.slug);
   if (!slug.ok) return slug;
 
-  const primaryColour = text(input?.primaryColour || '#E6413D', 7);
+  const primaryColour = text(input?.primaryColour || '#EB7C16', 7);
   if (!HEX_COLOUR.test(primaryColour)) {
     return { ok: false, code: 'invalid-colour', message: 'Primary colour must be a six-digit hex colour.' };
   }
