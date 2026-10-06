@@ -32,6 +32,10 @@ spec:
               value: '127.0.0.1'
         - name: api
           image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:cda7740
+          resources:
+            limits:
+              cpu: '1000m'
+              memory: 512Mi
           env:
             - name: PORT
               value: '3000'
