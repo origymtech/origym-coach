@@ -11,6 +11,9 @@ spec:
         autoscaling.knative.dev/maxScale: '2'
         run.googleapis.com/execution-environment: gen2
         run.googleapis.com/cloudsql-instances: origym-coach:europe-west2:origym-coach-postgres
+        # The public nginx container must not accept traffic before the private
+        # API sidecar has opened its loopback port.
+        run.googleapis.com/container-dependencies: '{"web":["api"]}'
     spec:
       containerConcurrency: 40
       timeoutSeconds: 300
@@ -32,6 +35,12 @@ spec:
               value: '127.0.0.1'
         - name: api
           image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:cda7740
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
           resources:
             limits:
               cpu: '1000m'
