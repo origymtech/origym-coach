@@ -133,5 +133,27 @@ export class TenantRuntimeStore {
     await this.pool.query('DELETE FROM tenant_state_documents WHERE organisation_id = $1 AND user_id = $2', [organisationId, userId]);
   }
 
+  async currentLegalDocuments(organisationId) {
+    const result = await this.pool.query(
+      `SELECT DISTINCT ON (document_type) id, document_type, version, content, published_at
+       FROM legal_documents
+       WHERE organisation_id = $1 AND published_at IS NOT NULL
+       ORDER BY document_type, version DESC`,
+      [organisationId]
+    );
+    return result.rows;
+  }
+
+  async acceptCurrentLegalDocuments(organisationId, userId, documents) {
+    const ids = documents.map(document => document.id);
+    if (ids.length !== 2) throw new Error('Both current legal documents are required');
+    await this.pool.query(
+      `INSERT INTO tenant_legal_acceptances (organisation_id, user_id, legal_document_id)
+       SELECT $1, $2, unnest($3::uuid[])
+       ON CONFLICT DO NOTHING`,
+      [organisationId, userId, ids]
+    );
+  }
+
   async close() { await this.pool.end(); }
 }

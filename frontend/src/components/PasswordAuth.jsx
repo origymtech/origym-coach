@@ -155,9 +155,11 @@ export const openPasswordSignIn = onPasskey => ui().openSheet(close => <Password
 /* The password half of creating a profile. Name and invite code are the caller's state, so
    switching between passkey and password on the sign-up sheet keeps what was typed. */
 export function PasswordRegisterForm({ close, inviteOnly, name, setName, code, setCode }) {
+  const config = useStore(s => s.config)
   const [email, setEmail] = useState('')
   const [pw, setPw] = useState('')
   const [again, setAgain] = useState('')
+  const [legalAccepted, setLegalAccepted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const submit = async ev => {
@@ -168,13 +170,14 @@ export function PasswordRegisterForm({ close, inviteOnly, name, setName, code, s
     const bad = !n ? t('Enter a name')
       : mail && !looksLikeEmail(mail) ? t('That is not an e-mail address.')
       : inviteOnly && !code.trim() ? t('An invite code is required')
+      : config?.legal?.length && !legalAccepted ? 'Please accept the Terms and Privacy Notice'
       : length(pw) < MIN_PASSWORD ? t('Use at least {0} characters.', MIN_PASSWORD)
       : pw !== again ? t('The two passwords are not the same.')
       : null
     if (bad) { setErr(bad); return }
     setBusy(true); setErr(null)
     try {
-      const u = await passwordRegister(n, pw, code.trim(), mail)
+      const u = await passwordRegister(n, pw, code.trim(), mail, legalAccepted)
       const st = useStore.getState()
       st.setUser(u); close()
       if (hasData(useStore.getState().S)) { await st.pushState(); toast(t('Profile created — data from this device moved into it')) }
@@ -202,6 +205,10 @@ export function PasswordRegisterForm({ close, inviteOnly, name, setName, code, s
     <input className="input" type="password" name="new-password-again" autoComplete="new-password" placeholder={t('Repeat the password')}
       value={again} onChange={e => setAgain(e.target.value)} />
     <div className="dim small" style={{ marginTop: 6 }}>{t('At least {0} characters. A few unrelated words make a good one.', MIN_PASSWORD)}</div>
+    {config?.legal?.length && <label className="small muted" style={{ display: 'block', textAlign: 'start', lineHeight: 1.45, marginTop: 12 }}>
+      <input type="checkbox" checked={legalAccepted} onChange={e => setLegalAccepted(e.target.checked)} style={{ marginInlineEnd: 8 }} />
+      I agree to the <a href="/api/legal/terms" target="_blank" rel="noreferrer">Terms of Use</a> and have read the <a href="/api/legal/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>.
+    </label>}
     {err && <div className="small" role="alert" style={errStyle}>{err}</div>}
     <div style={{ height: 12 }} />
     <Button type="submit" variant="primary" disabled={busy}>{t('Create profile')}</Button>

@@ -17,6 +17,7 @@ function RegisterSheet({ close }) {
   const config = useStore(s => s.config)
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
+  const [legalAccepted, setLegalAccepted] = useState(false)
   const inviteOnly = !!config?.invite_only
   // A password is offered only where the instance allows it (#118), and is the only choice in a
   // browser that cannot make a passkey. Where both work, the passkey stays the first one.
@@ -31,8 +32,9 @@ function RegisterSheet({ close }) {
     const n = name.trim()
     if (!n) { useUI.getState().toast(t('Enter a name')); return }
     if (inviteOnly && !code.trim()) { useUI.getState().toast(t('An invite code is required')); return }
+    if (config?.legal?.length && !legalAccepted) { useUI.getState().toast('Please accept the Terms and Privacy Notice'); return }
     try {
-      const u = await passkeyRegister(n, code.trim())
+      const u = await passkeyRegister(n, code.trim(), legalAccepted)
       setUser(u); close()
       if (hasData(useStore.getState().S)) { await pushState(); useUI.getState().toast(t('Profile created — data from this device moved into it')) }
       else { await pullState(); useUI.getState().toast(t('Welcome, {0}', u.name)) }
@@ -61,6 +63,10 @@ function RegisterSheet({ close }) {
       <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only — enter the code you were given.')}</div>
     </>}
     <div style={{ height: 12 }} />
+    {config?.legal?.length && <label className="small muted" style={{ display: 'block', textAlign: 'start', lineHeight: 1.45, marginBottom: 12 }}>
+      <input type="checkbox" checked={legalAccepted} onChange={e => setLegalAccepted(e.target.checked)} style={{ marginInlineEnd: 8 }} />
+      I agree to the <a href="/api/legal/terms" target="_blank" rel="noreferrer">Terms of Use</a> and have read the <a href="/api/legal/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>.
+    </label>}
     <Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
   </>
 }

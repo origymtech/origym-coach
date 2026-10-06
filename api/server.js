@@ -51,6 +51,9 @@ const TENANT_STORE = process.env.TENANT_STORE || 'local';
 const TENANT_FALLBACK_HOST = process.env.TENANT_FALLBACK_HOST || '';
 const TENANT_FALLBACK_SLUG = process.env.TENANT_FALLBACK_SLUG || '';
 const tenantRuntimeStore = TENANT_STORE === 'postgres' ? TenantRuntimeStore.fromEnvironment() : null;
+const legalDocuments = async req => tenantRuntimeStore
+  ? tenantRuntimeStore.currentLegalDocuments(req.tenant.id)
+  : [];
 // Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -1194,6 +1197,10 @@ const passwordRoutes = {
     const body = await readBody(req);
     const name = text(body.name).trim().slice(0, 40);
     if (!name) return json(res, 400, { error: 'name required', code: 'missing' });
+    const legal = await legalDocuments(req);
+    if (tenantRuntimeStore && (!body.acceptLegal || legal.length !== 2)) {
+      return json(res, 400, { error: 'you must accept the current Terms and Privacy Notice', code: 'legal' });
+    }
     const code = text(body.code).trim().toUpperCase();
     const invite = () => db.invites.find(i => i.code === code && !i.usedBy && !i.revoked);
     if (INVITE_ONLY && addressPaused(req, res, 'signup')) return;
@@ -1235,6 +1242,7 @@ const passwordRoutes = {
     const user = { id: crypto.randomBytes(12).toString('base64url'), name, created, pw: { h, set: created }, ...(email ? { email } : {}) };
     if (inv) { user.invitedBy = inv.code; inv.usedBy = user.id; inv.usedAt = created; }
     db.users.push(user);
+    if (tenantRuntimeStore) await tenantRuntimeStore.acceptCurrentLegalDocuments(req.tenant.id, user.id, legal);
     saveDb();
     audit(req, 'auth.register.ok', { user, msg: inv ? inv.code + ' · password' : 'password' });
     json(res, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(user) });
@@ -1797,6 +1805,20 @@ const routes = {
     });
   },
 
+  'GET /api/legal/terms': async (req, res) => {
+    const document = (await legalDocuments(req)).find(item => item.document_type === 'terms');
+    if (!document) return json(res, 404, { error: 'terms not published' });
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(document.content);
+  },
+
+  'GET /api/legal/privacy': async (req, res) => {
+    const document = (await legalDocuments(req)).find(item => item.document_type === 'privacy');
+    if (!document) return json(res, 404, { error: 'privacy notice not published' });
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(document.content);
+  },
+
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
   // the instance has both switched the Coach on and successfully connected a provider — the
   // single flag every piece of Coach UI hangs off, so an unconfigured instance is byte-for-byte
@@ -1818,6 +1840,7 @@ const routes = {
     // that has no Coach. The key's absence is that answer.
     json(res, 200, {
       invite_only: INVITE_ONLY, allow_guest: ALLOW_GUEST,
+      ...(tenantRuntimeStore ? { legal: (await legalDocuments(req)).map(({ document_type, version, published_at }) => ({ type: document_type, version, publishedAt: published_at })) } : {}),
       // Only when on, so an instance without passwords answers exactly as it did before (#118).
       ...(PASSWORD_LOGIN ? { password_login: true } : {}),
       // Public: the sign-in screen is the first thing that reads it.
@@ -1848,6 +1871,10 @@ const routes = {
     const body = await readBody(req);
     const name = text(body.name).trim().slice(0, 40);
     if (!name) return json(res, 400, { error: 'name required' });
+    const legal = await legalDocuments(req);
+    if (tenantRuntimeStore && (!body.acceptLegal || legal.length !== 2)) {
+      return json(res, 400, { error: 'you must accept the current Terms and Privacy Notice' });
+    }
     const code = text(body.code).trim().toUpperCase();
     if (INVITE_ONLY && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked)) {
       // The rejected code itself is never recorded — a near-miss guess in the log is a liability.
@@ -1862,7 +1889,7 @@ const routes = {
       authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
       excludeCredentials: []
     });
-    const cid = putChallenge({ kind: 'register', challenge: options.challenge, name, uid, code });
+    const cid = putChallenge({ kind: 'register', challenge: options.challenge, name, uid, code, legal });
     json(res, 200, { cid, options });
   },
 
@@ -1916,6 +1943,7 @@ const routes = {
       // What Settings → Passkeys shows (#95); a passkey from before then has neither.
       created: user.created, lastUsed: user.created
     });
+    if (tenantRuntimeStore) await tenantRuntimeStore.acceptCurrentLegalDocuments(req.tenant.id, user.id, c.legal || []);
     saveDb();
     audit(req, 'auth.register.ok', { user, msg: invite ? invite.code : null });
     json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
