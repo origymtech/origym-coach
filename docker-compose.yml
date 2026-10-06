@@ -49,7 +49,7 @@ services:
     environment:
       # The port the API listens on. web proxies to this same value, so the two
       # cannot drift — change it in .env and both follow.
-      - PORT=${PORT:-3000}
+      - API_PORT=${PORT:-3000}
       - DATA_DIR=/data
       # The API is reachable only through the web container here, and that container overwrites
       # X-Forwarded-For / X-Real-IP with the real peer — so the sign-in throttle may count
