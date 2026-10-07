@@ -31,7 +31,7 @@ spec:
             - name: RESOLVER
               value: '127.0.0.1'
         - name: api
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:5998ed6
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:b54a0fe
           startupProbe:
             tcpSocket:
               port: 3000
