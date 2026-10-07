@@ -66,6 +66,11 @@ spec:
                 secretKeyRef:
                   name: origym-coach-db-password
                   key: latest
+            - name: BOOTSTRAP_ADMIN_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: origym-coach-bootstrap-code
+                  key: latest
             - name: GOOGLE_CLOUD_PROJECT
               value: origym-coach
             - name: COACH_BASE_DOMAIN
