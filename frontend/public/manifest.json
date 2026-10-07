@@ -1,7 +1,7 @@
 {
-  "name": "openGym",
-  "short_name": "openGym",
-  "description": "Personal gym & body weight tracker",
+  "name": "OriGym Coach",
+  "short_name": "OriGym Coach",
+  "description": "OriGym workout and body-weight tracker",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

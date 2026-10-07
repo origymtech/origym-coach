@@ -1,0 +1,82 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: origym-coach
+  annotations:
+    run.googleapis.com/ingress: internal-and-cloud-load-balancing
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '4'
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/cloudsql-instances: origym-coach:europe-west2:origym-coach-postgres
+        run.googleapis.com/container-dependencies: '{"web":["api"]}'
+    spec:
+      containerConcurrency: 40
+      timeoutSeconds: 300
+      serviceAccountName: origym-coach-staging@origym-coach.iam.gserviceaccount.com
+      containers:
+        - name: web
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:5998ed6
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NGINX_PORT
+              value: '8080'
+            - name: BACKEND
+              value: '127.0.0.1'
+            - name: API_PORT
+              value: '3000'
+            - name: RESOLVER
+              value: '127.0.0.1'
+        - name: api
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:5998ed6
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: '1000m'
+              memory: 512Mi
+          env:
+            - name: PORT
+              value: '3000'
+            - name: DATA_DIR
+              value: /tmp/data
+            - name: COMPANY_STORE
+              value: firestore
+            - name: TENANT_STORE
+              value: postgres
+            - name: TENANT_FALLBACK_HOST
+              value: coach.origym.co.uk
+            - name: TENANT_FALLBACK_SLUG
+              value: origym
+            - name: CLOUD_SQL_CONNECTION_NAME
+              value: origym-coach:europe-west2:origym-coach-postgres
+            - name: DATABASE_NAME
+              value: origym_coach_prod
+            - name: DATABASE_USER
+              value: origym_coach_app
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: origym-coach-db-password
+                  key: latest
+            - name: GOOGLE_CLOUD_PROJECT
+              value: origym-coach
+            - name: COACH_BASE_DOMAIN
+              value: coach.origym.co.uk
+            - name: RP_ID
+              value: coach.origym.co.uk
+            - name: ORIGIN
+              value: https://coach.origym.co.uk
+            - name: RP_NAME
+              value: OriGym Coach
+            - name: INVITE_ONLY
+              value: 'true'
+            - name: ALLOW_GUEST
+              value: 'false'
