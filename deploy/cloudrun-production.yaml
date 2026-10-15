@@ -18,7 +18,7 @@ spec:
       serviceAccountName: origym-coach-staging@origym-coach.iam.gserviceaccount.com
       containers:
         - name: web
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:5998ed6
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:mobile-pairing-removed-20261007
           ports:
             - containerPort: 8080
           env:
@@ -31,7 +31,7 @@ spec:
             - name: RESOLVER
               value: '127.0.0.1'
         - name: api
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:b54a0fe
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007
           startupProbe:
             tcpSocket:
               port: 3000
@@ -66,11 +66,6 @@ spec:
                 secretKeyRef:
                   name: origym-coach-db-password
                   key: latest
-            - name: BOOTSTRAP_ADMIN_CODE
-              valueFrom:
-                secretKeyRef:
-                  name: origym-coach-bootstrap-code
-                  key: latest
             - name: GOOGLE_CLOUD_PROJECT
               value: origym-coach
             - name: COACH_BASE_DOMAIN
@@ -82,6 +77,8 @@ spec:
             - name: RP_NAME
               value: OriGym Coach
             - name: INVITE_ONLY
+              value: 'true'
+            - name: PASSWORD_LOGIN
               value: 'true'
             - name: ALLOW_GUEST
               value: 'false'

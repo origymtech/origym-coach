@@ -10,7 +10,8 @@ info:
   summary: Passkey (WebAuthn) auth + per-user state storage for openGym
   description: |
     The backend of [openGym](https://opengym.duarte-santos.ch) — a free, open-source
-    gym & body-weight tracker. A plain Node server, no framework, JSON-file storage,
+    gym & body-weight tracker. A plain Node server, no framework, with production
+    tenant runtime and training state held in PostgreSQL,
     HMAC-signed session cookies.
 
     ### Authentication
@@ -74,7 +75,7 @@ info:
       server merely reports the flag via `GET /api/config` (guest mode never talks to
       this API at all).
     - `ADMIN_UIDS=<uid>,<uid>` — user ids treated as admins (a `"admin": true` flag on
-      the user record in `db.json` works too). Admins get the `/api/admin/*` routes.
+      the tenant user record works too). Admins get the `/api/admin/*` routes.
     - `AUDIT_LOG` (default on), `AUDIT_MAX` (default 5000 events), `AUDIT_DAYS`
       (default 90), `AUDIT_IP` (`off` | `net` | `full`, default off) — shape the audit
       log served by `GET /api/admin/audit`.
@@ -1759,7 +1760,8 @@ paths:
 
         Without this call nothing is lost either: the hourly sweep removes a file once the
         state has not referenced it for `MEDIA_GC_GRACE_DAYS` days (14), and only for profiles
-        whose state reads — a missing or unreadable state, or a profile missing from `db.json`,
+        whose state reads — a missing or unreadable state, or a profile missing from the
+        tenant runtime,
         never deletes anything.
       requestBody:
         content:

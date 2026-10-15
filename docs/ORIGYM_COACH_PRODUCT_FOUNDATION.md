@@ -34,31 +34,28 @@ A trainer company claims one unique `brandSlug`.
 
 - One hosted, multi-tenant product. No per-trainer infrastructure.
 - Every request resolves the company from the hostname and authorises it server-side.
-- The original JSON-file storage will be replaced with Firestore before production.
-- Company logo/media goes in Cloud Storage, not Firestore.
+- Production tenant runtime and training-state records are stored in PostgreSQL.
+- Company logo/media will go in Cloud Storage, not PostgreSQL.
 - Terms and privacy notices are immutable versions. Record the company, user, document type, version, timestamp and document hash when accepted.
 - Do not add medical, injury or nutrition-data collection in the first release.
 
-## Initial Firestore shape
+## Production PostgreSQL model
 
 ```text
-companies/{companyId}
-  slug, displayName, branding, status, createdAt
-  members/{userId}
-    role, status, createdAt
-  legalDocuments/{documentId}
-    type, version, content, hash, publishedAt
+organisations
+  id, slug, name, logo_url, primary_colour, status
 
-users/{userId}
-  identity fields only
-  memberships/{companyId}
-    role, status
+tenant_runtime
+  organisation_id, runtime JSONB, session_secret, vapid JSONB
 
-consents/{consentId}
-  companyId, userId, documentType, documentVersion, documentHash, acceptedAt
+tenant_state_documents
+  organisation_id, user_id, revision, state JSONB
 
-trainingStates/{companyId}_{userId}
-  companyId, userId, revision, state
+legal_documents
+  organisation_id, document_type, version, content, published_at
+
+tenant_legal_acceptances
+  organisation_id, user_id, legal_document_id, accepted_at
 ```
 
 ## First technical milestones
@@ -66,6 +63,6 @@ trainingStates/{companyId}_{userId}
 1. Company/brand registry and hostname resolution.
 2. Master OriGym dashboard and company creation journey.
 3. Trainer, client and permission model.
-4. Firestore storage adapter and migration away from JSON files.
+4. PostgreSQL runtime adapter and migration away from JSON files.
 5. Branded sign-in and client onboarding.
 6. Legal-document publishing and acceptance controls.

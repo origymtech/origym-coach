@@ -1,0 +1,24 @@
+displayName: OriGym Coach production 5xx errors
+documentation:
+  mimeType: text/markdown
+  content: |
+    OriGym Coach is returning at least five server errors over five minutes.
+    Check Cloud Run logs for the `origym-coach` production service and roll back if needed.
+conditions:
+  - displayName: Five or more Cloud Run server errors in five minutes
+    conditionThreshold:
+      filter: metric.type = "run.googleapis.com/request_count" AND resource.type = "cloud_run_revision" AND resource.label."service_name" = "origym-coach" AND metric.label."response_code_class" = "5xx"
+      comparison: COMPARISON_GT
+      thresholdValue: 5
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+      trigger:
+        count: 1
+combiner: OR
+enabled: true
+notificationChannels:
+  - projects/origym-coach/notificationChannels/4432795828836373681
+alertStrategy:
+  autoClose: 604800s

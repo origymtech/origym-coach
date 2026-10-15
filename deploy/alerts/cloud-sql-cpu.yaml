@@ -1,0 +1,24 @@
+displayName: OriGym Coach Cloud SQL high CPU
+documentation:
+  mimeType: text/markdown
+  content: |
+    The OriGym Coach PostgreSQL instance has sustained CPU utilisation above 80% for five minutes.
+    Check Cloud SQL Insights, active connections and Cloud Run traffic before scaling or investigating slow queries.
+conditions:
+  - displayName: Cloud SQL CPU exceeds 80 percent for five minutes
+    conditionThreshold:
+      filter: metric.type = "cloudsql.googleapis.com/database/cpu/utilization" AND resource.type = "cloudsql_database"
+      comparison: COMPARISON_GT
+      thresholdValue: 0.8
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_MEAN
+      trigger:
+        count: 1
+combiner: OR
+enabled: true
+notificationChannels:
+  - projects/origym-coach/notificationChannels/4432795828836373681
+alertStrategy:
+  autoClose: 604800s

@@ -88,9 +88,8 @@ describe('Settings: passkeys and another device', () => {
     const account = section(page, 'Account')
     expect(titles(account)).toEqual(expect.arrayContaining(['Passkeys', 'Add another device']))
     expect(rowByTitle(account, 'Passkeys').textContent).toContain('2 passkeys')
-    // Above pairing and the password, which are about other ways in.
+    // Above the password, which is another way in.
     const order = titles(account)
-    expect(order.indexOf('Passkeys')).toBeLessThan(order.indexOf('Pair the mobile app'))
     expect(order.indexOf('Add another device')).toBeLessThan(order.indexOf('Password'))
   })
 

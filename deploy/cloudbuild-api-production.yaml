@@ -1,0 +1,8 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007
+      - .
+images:
+  - europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007

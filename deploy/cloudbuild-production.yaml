@@ -1,0 +1,10 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=mobile-pairing-removed-20261007
+      - --file=web/Dockerfile
+      - --tag=europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:mobile-pairing-removed-20261007
+      - .
+images:
+  - europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:mobile-pairing-removed-20261007

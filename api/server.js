@@ -60,10 +60,6 @@ const legalDocuments = async req => tenantRuntimeStore
 // Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-// One-time production bootstrap: a Secret Manager-backed code may promote the
-// first verified profile to admin. As soon as an admin exists it is inert.
-const BOOTSTRAP_ADMIN_CODE = String(process.env.BOOTSTRAP_ADMIN_CODE || '').trim();
-const isBootstrapAdminCode = code => !!BOOTSTRAP_ADMIN_CODE && code === BOOTSTRAP_ADMIN_CODE && !db.users.some(isAdmin);
 const INVITE_ONLY = /^(1|true|yes|on)$/i.test(process.env.INVITE_ONLY || '');
 // Guest mode ("Continue without account") keeps everything in the browser and never touches this
 // server — but on an instance meant for a known set of people, an entrance nobody can walk back
@@ -1210,9 +1206,8 @@ const passwordRoutes = {
     }
     const code = text(body.code).trim().toUpperCase();
     const invite = () => db.invites.find(i => i.code === code && !i.usedBy && !i.revoked);
-    const bootstrap = isBootstrapAdminCode(code);
     if (INVITE_ONLY && addressPaused(req, res, 'signup')) return;
-    if (INVITE_ONLY && !bootstrap && !invite()) {
+    if (INVITE_ONLY && !invite()) {
       audit(req, 'auth.register.denied', { ok: false, name, msg: 'invite-rejected' });
       strikeAddress(req, 'signup');
       return json(res, 403, { error: 'a valid invite code is required', code: 'invite' });
@@ -1238,7 +1233,7 @@ const passwordRoutes = {
     let inv = null;
     if (INVITE_ONLY) {
       inv = invite();
-      if (!inv && !isBootstrapAdminCode(code)) {
+      if (!inv) {
         audit(req, 'auth.register.fail', { ok: false, name, msg: 'invite-invalid' });
         return json(res, 403, { error: 'invite code is no longer valid — ask for a new one', code: 'invite' });
       }
@@ -1249,7 +1244,6 @@ const passwordRoutes = {
     const created = new Date().toISOString();
     const user = { id: crypto.randomBytes(12).toString('base64url'), name, created, pw: { h, set: created }, ...(email ? { email } : {}) };
     if (inv) { user.invitedBy = inv.code; inv.usedBy = user.id; inv.usedAt = created; }
-    if (!inv && isBootstrapAdminCode(code)) user.admin = true;
     db.users.push(user);
     if (tenantRuntimeStore) await tenantRuntimeStore.acceptCurrentLegalDocuments(req.tenant.id, user.id, legal);
     saveDb();
@@ -1885,8 +1879,7 @@ const routes = {
       return json(res, 400, { error: 'you must accept the current Terms and Privacy Notice' });
     }
     const code = text(body.code).trim().toUpperCase();
-    const bootstrap = isBootstrapAdminCode(code);
-    if (INVITE_ONLY && !bootstrap && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked)) {
+    if (INVITE_ONLY && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked)) {
       // The rejected code itself is never recorded — a near-miss guess in the log is a liability.
       audit(req, 'auth.register.denied', { ok: false, name, msg: 'invite-rejected' });
       return json(res, 403, { error: 'a valid invite code is required' });
@@ -1937,14 +1930,13 @@ const routes = {
     let invite = null;
     if (INVITE_ONLY) {
       invite = db.invites.find(i => i.code === c.code && !i.usedBy && !i.revoked);
-      if (!invite && !isBootstrapAdminCode(c.code)) {
+      if (!invite) {
         audit(req, 'auth.register.fail', { ok: false, name: c.name, msg: 'invite-invalid' });
         return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
       }
     }
     const user = { id: c.uid, name: c.name, created: new Date().toISOString() };
     if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
-    if (!invite && isBootstrapAdminCode(c.code)) user.admin = true;
     db.users.push(user);
     db.creds.push({
       id: credential.id, userId: user.id,
