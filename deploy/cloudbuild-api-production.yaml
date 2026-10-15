@@ -3,6 +3,6 @@ steps:
     args:
       - build
       - --tag=europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007
-      - .
+      - api
 images:
   - europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007
