@@ -18,7 +18,7 @@ spec:
       serviceAccountName: origym-coach-staging@origym-coach.iam.gserviceaccount.com
       containers:
         - name: web
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web:mobile-pairing-removed-20261007
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/web@sha256:492378344256a9c2c6be5a0f2bd16ad2df6a532193766bd89a7bbe16f2cb2993
           ports:
             - containerPort: 8080
           env:
@@ -31,7 +31,7 @@ spec:
             - name: RESOLVER
               value: '127.0.0.1'
         - name: api
-          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api:v1-hardening-20261007
+          image: europe-west2-docker.pkg.dev/origym-coach/origym-coach/api@sha256:cc6e69cca4de9b3cba6c22d40174b47fd0bc10110d2fca486674320e3f21ea54
           startupProbe:
             tcpSocket:
               port: 3000
